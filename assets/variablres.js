@@ -5,6 +5,7 @@ module.exports = {
     URL: 'https://coinmarketcap.com/ru/currencies/', //coinmarketcap url
     path: './info', //Path to main folder
     time: Number(settings.timeInterval) * 1000, //Interval time
+    currentTime: Date.now(), //Current time for 
     tokens: Object.keys(config), //Tokens
     configEntries: Object.entries(config), // Tokens and pairs
     

@@ -15,6 +15,8 @@ const binance = new Binance().options({
     APISECRET: settings.secretKey,
 });
 
+needle.defaults({ open_timeout: 90000 });
+
 const pairs = variables.configEntries.flatMap((arr) => { return arr[1] }),
 
     binanceOrderBook = {};
@@ -90,7 +92,7 @@ pairs.forEach((pair) => {
             ]);
         });
     });
-    
+
     binance.websockets.prevDay(pairs, (error, response) => {
         if (error) throw error;
         binanceTrades[response.symbol].averagePrice = response.averagePrice;
@@ -101,10 +103,10 @@ pairs.forEach((pair) => {
     });
 
     //Open websocket for colleting info
-    binance.futuresAggTradeStream(pairs, (trade) => {
-        binanceOrderBook[trade.symbol].qty += Number(trade.amount);
-        binanceOrderBook[trade.symbol].time = trade.eventTime;
-        binanceOrderBook[trade.symbol].prices.push(Number(trade.price));
+    binance.websockets.trades(pairs, (trade) => {
+        binanceOrderBook[trade.s].qty += Number(trade.q);
+        binanceOrderBook[trade.s].time = trade.E;
+        binanceOrderBook[trade.s].prices.push(Number(trade.p));
     });
 
     binance.websockets.bookTickers((response) => {
@@ -114,6 +116,7 @@ pairs.forEach((pair) => {
         }
     });
 
+    variables.currentTime = Date.now();
     setInterval(() => {
         getCurrencyRates('RUB');
     }, 300000); // Every 5 minutes
@@ -152,6 +155,8 @@ pairs.forEach((pair) => {
         tradesFileData[pair] = '';
     });
     setInterval(() => {
+        variables.currentTime = Date.now();
+
         variables.configEntries.forEach((arr) => {
             const token = arr[0];
             const pairs = arr[1];
@@ -170,7 +175,7 @@ pairs.forEach((pair) => {
                     return 0;
                 };
 
-                const date = new Date(Number(binanceOrderBook[pair].time));
+                const date = new Date(variables.currentTime);
                 const time = `${date.getFullYear()}/${date.getMonth()}/${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
 
                 tradesFileData[pair] += `${time};${averagePrice()};${binanceOrderBook[pair].qty};${binanceOrderBook[pair].totalAmount}\n`;
