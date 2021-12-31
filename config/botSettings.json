@@ -1,5 +1,6 @@
 {
     "apiKey": "",
     "secretKey": "",
-    "timeInterval": "5"
+    "coinMarketCapInterval": "30",
+    "binanceInterval": "10"
 }

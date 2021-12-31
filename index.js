@@ -18,10 +18,11 @@ const binance = new Binance().options({
 
 needle.defaults({ open_timeout: 90000 });
 
-const pairs = variables.configEntries.flatMap((arr) => { return arr[1] }),
+const pairs = variables.configEntries.flatMap((arr) => { return arr[1] });
 
-    binanceOrderBook = {};
-binanceTrades = {};
+let binanceOrderBook = {};
+let binanceTrades = {};
+let currentCoinMarketCapData = {};
 
 pairs.forEach((pair) => {
     binanceOrderBook[pair] = {}; //Create initial object
@@ -67,10 +68,12 @@ pairs.forEach((pair) => {
         //Cretaing directory for every token
         variables.tokens.forEach((token) => {
             createDirecory(`${variables.path}/${token}`);
-            createFiles([{
-                "path": `${variables.path}/${token}/${token}_COINMARKETCUP.csv`,
-                "content": variables.initialData.coinMarketCap
-            }]);
+            createFiles([
+                {
+                    "path": `${variables.path}/${token}/${token}_COINMARKETCUP.csv`,
+                    "content": variables.initialData.coinMarketCap + '\n'
+                }
+            ]);
         });
 
         //Creating directories and files for pairs
@@ -78,18 +81,26 @@ pairs.forEach((pair) => {
             const token = arr[0];
             const pairs = arr[1];
 
+            //Add pair to currentCoinMarketCapData
+            currentCoinMarketCapData[token] = '';
+
             pairs.forEach((pair) => {
                 //Check existing directory
                 const pairDirectoryPath = `${variables.path}/${token}/${pair}`;
+
                 createDirecory(pairDirectoryPath);
                 createFiles([
                     {
                         "path": `${pairDirectoryPath}/${pair}_INFO.csv`,
-                        "content": variables.initialData.info
+                        "content": variables.initialData.info + '\n'
                     },
                     {
                         "path": `${pairDirectoryPath}/${pair}_TRADE.csv`,
-                        "content": variables.initialData.trade
+                        "content": variables.initialData.trade + '\n'
+                    },
+                    {
+                        "path": `${pairDirectoryPath}/${pair}_Merged.csv`,
+                        "content": variables.initialData.trade + variables.initialData.info + variables.initialData.coinMarketCap + '\n'
                     }
                 ]);
             });
@@ -123,39 +134,16 @@ pairs.forEach((pair) => {
             getCurrencyRates('RUB');
         }, 300000); // Every 5 minutes
 
-        //Info file
+        //Info and trades file
         let infoFileData = {};
+        let tradesFileData = {};
+        let mergedData = {};
         pairs.forEach((pair) => {
             infoFileData[pair] = '';
-        });
-        setInterval(() => {
-            variables.configEntries.forEach((arr) => {
-                const token = arr[0];
-                const pairs = arr[1];
-
-                pairs.forEach((pair) => {
-                    //Check existing directory
-                    const pairDirectoryPath = `${variables.path}/${token}/${pair}`;
-
-                    infoFileData[pair] += `${pair};${binanceTrades[pair].bid};${binanceTrades[pair].ask};${binanceTrades[pair].averagePrice};${binanceTrades[pair].priceChange};${binanceTrades[pair].high};${binanceTrades[pair].low};${binanceTrades[pair].volume};\n`;
-
-                    fs.appendFile(`${pairDirectoryPath}/${pair}_INFO.csv`, infoFileData[pair], function (err) {
-                        try {
-                            if (err) throw err;
-                            infoFileData[pair] = '';
-                        } catch {
-                            if (err.code == "EBUSY") console.log(`File ${pairDirectoryPath}/${pair}_INFO.csv is busy!`);
-                        }
-                    });
-                });
-            });
-        }, variables.time);
-
-        //Trades file
-        let tradesFileData = {};
-        pairs.forEach((pair) => {
             tradesFileData[pair] = '';
+            mergedData[pair] = '';
         });
+
         setInterval(() => {
             variables.currentTime = Date.now();
 
@@ -180,8 +168,13 @@ pairs.forEach((pair) => {
                     const date = new Date(variables.currentTime);
                     const time = `${date.getFullYear()}/${date.getMonth()}/${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
 
-                    tradesFileData[pair] += `${time};${averagePrice()};${binanceOrderBook[pair].qty};${binanceOrderBook[pair].totalAmount}\n`;
+                    //Write data for Trades file
+                    tradesFileData[pair] += `${time};${averagePrice()};${binanceOrderBook[pair].qty};${binanceOrderBook[pair].totalAmount};\n`;
 
+                    //Add TRADE data to MERGED file
+                    mergedData[pair] += `${time};${averagePrice()};${binanceOrderBook[pair].qty};${binanceOrderBook[pair].totalAmount};`;
+
+                    //Write TRADE file
                     fs.appendFile(`${pairDirectoryPath}/${pair}_TRADE.csv`, tradesFileData[pair], function (err) {
                         try {
                             if (err) throw err;
@@ -193,9 +186,41 @@ pairs.forEach((pair) => {
 
                     binanceOrderBook[pair].prices = [];
                     binanceOrderBook[pair].qty = 0;
+
+                    //Write data for INFO file
+                    infoFileData[pair] += `${pair};${binanceTrades[pair].bid};${binanceTrades[pair].ask};${binanceTrades[pair].averagePrice};${binanceTrades[pair].priceChange};${binanceTrades[pair].high};${binanceTrades[pair].low};${binanceTrades[pair].volume};\n`;
+
+                    //Add INFO data to MERGED file
+                    mergedData[pair] += `${pair};${binanceTrades[pair].bid};${binanceTrades[pair].ask};${binanceTrades[pair].averagePrice};${binanceTrades[pair].priceChange};${binanceTrades[pair].high};${binanceTrades[pair].low};${binanceTrades[pair].volume};`;
+
+                    //Add COINMARKETCAP data to MERGED file
+                    const currentToken = variables.configEntries.find(entry => {
+                        return entry[1].includes(pair);
+                    });
+                    mergedData[pair] += currentCoinMarketCapData[currentToken[0]] + '\n';
+
+                    //Write INFO file
+                    fs.appendFile(`${pairDirectoryPath}/${pair}_INFO.csv`, infoFileData[pair], function (err) {
+                        try {
+                            if (err) throw err;
+                            infoFileData[pair] = '';
+                        } catch {
+                            if (err.code == "EBUSY") console.log(`File ${pairDirectoryPath}/${pair}_INFO.csv is busy!`);
+                        }
+                    });
+
+                    //Write MERGED file
+                    fs.appendFile(`${pairDirectoryPath}/${pair}_Merged.csv`, mergedData[pair], function (err) {
+                        try {
+                            if (err) throw err;
+                            mergedData[pair] = '';
+                        } catch {
+                            if (err.code == "EBUSY") console.log(`File ${pairDirectoryPath}/${pair}_Merged.csv is busy!`);
+                        }
+                    });
                 });
             });
-        }, variables.time);
+        }, Number(settings.binanceInterval) * 1000);
 
         //Coinmarketcap file
         let coinmarketcapFileData = {};
@@ -260,14 +285,16 @@ pairs.forEach((pair) => {
                     variables.coinsMarketCupData.marketCapFullEmission = variables.coinsMarketCupData.marketCapFullEmission.replace(regExp, '');
                     variables.coinsMarketCupData.volume = variables.coinsMarketCupData.volume.replace(regExp, '');
 
-                    coinmarketcapFileData[token] += token + ';' + convertToUSDT(variables.coinsMarketCupData.price.slice(1)) + ';';
-                    coinmarketcapFileData[token] += convertToUSDT(variables.coinsMarketCupData.marketCap.slice(1)) + ';';
-                    coinmarketcapFileData[token] += convertToUSDT(variables.coinsMarketCupData.marketCapFullEmission.slice(1)) + ';';
-                    coinmarketcapFileData[token] += convertToUSDT(variables.coinsMarketCupData.volume.slice(1)) + ';';
-                    coinmarketcapFileData[token] += variables.coinsMarketCupData.volumeToCap + ';';
-                    coinmarketcapFileData[token] += variables.coinsMarketCupData.circulatingOffer + ';';
-                    coinmarketcapFileData[token] += variables.coinsMarketCupData.maxOffer + ';';
-                    coinmarketcapFileData[token] += variables.coinsMarketCupData.generalOffer + ';\n';
+                    currentCoinMarketCapData[token] = token + ';' + convertToUSDT(variables.coinsMarketCupData.price.slice(1)) + ';';
+                    currentCoinMarketCapData[token] += convertToUSDT(variables.coinsMarketCupData.marketCap.slice(1)) + ';';
+                    currentCoinMarketCapData[token] += convertToUSDT(variables.coinsMarketCupData.marketCapFullEmission.slice(1)) + ';';
+                    currentCoinMarketCapData[token] += convertToUSDT(variables.coinsMarketCupData.volume.slice(1)) + ';';
+                    currentCoinMarketCapData[token] += variables.coinsMarketCupData.volumeToCap + ';';
+                    currentCoinMarketCapData[token] += variables.coinsMarketCupData.circulatingOffer + ';';
+                    currentCoinMarketCapData[token] += variables.coinsMarketCupData.maxOffer + ';';
+                    currentCoinMarketCapData[token] += variables.coinsMarketCupData.generalOffer + ';';
+
+                    coinmarketcapFileData[token] += currentCoinMarketCapData[token] + '/n';
 
                     fs.appendFile(`${variables.path}/${token}/${token}_COINMARKETCUP.csv`, coinmarketcapFileData[token], function (err) {
                         try {
@@ -279,7 +306,7 @@ pairs.forEach((pair) => {
                     });
                 });
             });
-        }, variables.time);
+        }, Number(settings.coinMarketCapInterval) * 1000);
     } catch (err) {
         console.error(err);
         logger.error(new Error(err));
